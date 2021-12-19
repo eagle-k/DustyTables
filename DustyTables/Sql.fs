@@ -263,7 +263,8 @@ module Sql =
                 if props.NeedPrepare then command.Prepare()
                 use! reader = command.ExecuteReaderAsync(mergedToken)
                 let rowReader = RowReader(reader)
-                if reader.Read()
+                let! success = reader.ReadAsync(mergedToken)
+                if success
                 then return read rowReader
                 else return! failwith "Expected at least one row to be returned from the result set. Instead it was empty"
             finally
@@ -304,7 +305,12 @@ module Sql =
                 if props.NeedPrepare then command.Prepare()
                 use! reader = command.ExecuteReaderAsync(mergedToken)
                 let rowReader = RowReader(reader)
-                while reader.Read() do read rowReader
+                let mutable readSuccess = true
+                while readSuccess do
+                    let! success = reader.ReadAsync(mergedToken)
+                    if success
+                    then read rowReader
+                    else readSuccess <- success
             finally
                 if props.ExistingConnection.IsNone
                 then connection.Dispose()
@@ -327,7 +333,12 @@ module Sql =
                 use! reader = command.ExecuteReaderAsync(mergedToken)
                 let rowReader = RowReader(reader)
                 let result = ResizeArray<'t>()
-                while reader.Read() do result.Add (read rowReader)
+                let mutable readSuccess = true
+                while readSuccess do
+                    let! success = reader.ReadAsync(mergedToken)
+                    if success
+                    then result.Add (read rowReader)
+                    else readSuccess <- success
                 return List.ofSeq result
             finally
                 if props.ExistingConnection.IsNone

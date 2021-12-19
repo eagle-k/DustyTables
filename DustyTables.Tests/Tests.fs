@@ -9,15 +9,31 @@ open ThrowawayDb
 let pass() = Expect.isTrue true "true is true :)"
 let fail() = Expect.isTrue false "true is false :("
 
+let instance = "localhost\\SQLEXPRESS"
+
 let testDatabase testName f =
     testCase testName <| fun _ ->
-        use db = ThrowawayDatabase.FromLocalInstance("localhost\\SQLEXPRESS")
+        use db = ThrowawayDatabase.FromLocalInstance(instance)
         f db.ConnectionString
+
+let testDatabaseAsync testName f =
+    testCaseAsync testName <|
+        async {
+            use db = ThrowawayDatabase.FromLocalInstance(instance)
+            do! f db.ConnectionString
+        }
 
 let ftestDatabase testName f =
     ftestCase testName <| fun _ ->
-        use db = ThrowawayDatabase.FromLocalInstance("localhost\\SQLEXPRESS")
+        use db = ThrowawayDatabase.FromLocalInstance(instance)
         f db.ConnectionString
+
+let ftestDatabaseAsync testName f =
+    ftestCaseAsync testName <|
+        async {
+            use db = ThrowawayDatabase.FromLocalInstance(instance)
+            do! f db.ConnectionString
+        }
 
 [<Tests>]
 let tests = testList "DustyTables" [
@@ -221,4 +237,60 @@ let tests = testList "DustyTables" [
               Expect.equal third "Fred Doe" "Third name is Fred Doe"
            | otherwise ->
               fail()
+
+    testDatabaseAsync "Reading a simple query asynchronously" <| fun connectionString ->
+        async {
+            match!
+                connectionString
+                |> Sql.connect
+                |> Sql.query "select * from (values (1, N'john'), (2, N'jane')) as users(id, username)"
+                |> Sql.executeAsync (fun read -> read.int "id", read.string "username")
+                |> Async.AwaitTask
+            with
+               | [ (1, "john"); (2, "jane") ] -> pass()
+               | otherwise -> fail()
+        }
+
+    testDatabaseAsync "Reading zero row asynchronously" <| fun connectionString ->
+        async {
+            match!
+                connectionString
+                |> Sql.connect
+                |> Sql.query "select * from (values (1, N'john'), (2, N'jane')) as users(id, username) where 0 = 1"
+                |> Sql.executeAsync (fun read -> read.int "id", read.string "username")
+                |> Async.AwaitTask
+            with
+               | [] -> pass()
+               | otherwise -> fail()
+        }
+
+    testDatabaseAsync "Iterating over the rows works asynchronously" <| fun connectionString ->
+        async {
+            let rows = ResizeArray<int * string>()
+
+            do!
+                connectionString
+                |> Sql.connect
+                |> Sql.query "select * from (values (1, N'john'), (2, N'jane')) as users(id, username)"
+                |> Sql.iterAsync (fun read -> rows.Add(read.int "id", read.string "username"))
+                |> Async.AwaitTask
+
+            Expect.equal 2 (rows.Count) "RowCount is read correctly"
+            Expect.equal 1 (fst rows.[0]) "Number is read correctly"
+            Expect.equal "john" (snd rows.[0]) "String is read correctly"
+        }
+
+    testDatabaseAsync "Reading a simple row query asynchronously" <| fun connectionString ->
+        async {
+            match!
+                connectionString
+                |> Sql.connect
+                |> Sql.query "select * from (values (1, N'john'), (2, N'jane')) as users(id, username)"
+                |> Sql.executeRowAsync (fun read -> read.int "id", read.string "username")
+                |> Async.AwaitTask
+            with
+               | (1, "john") -> pass()
+               | otherwise -> fail()
+        }
+
   ]
